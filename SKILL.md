@@ -5,12 +5,14 @@ description: |
   Triggers: "whatsapp", "gowa", "send whatsapp", "whatsapp message", "whatsapp chats",
   "check whatsapp", "whatsapp group", "group participants", "send message whatsapp",
   "list chats", "read messages", "whatsapp contacts", "whatsapp outreach", "bulk whatsapp",
-  "whatsapp check number", "is on whatsapp", "gowa api", "gowa curl".
+  "whatsapp check number", "is on whatsapp", "gowa api", "gowa curl", "send link whatsapp",
+  "send image whatsapp", "send video whatsapp", "link preview whatsapp".
 
   Use when: (1) Listing WhatsApp chats/conversations, (2) Reading messages from any chat,
   (3) Sending WhatsApp messages to individuals or groups, (4) Getting group info/participants,
   (5) Checking if a phone number is on WhatsApp, (6) Any WhatsApp automation via REST API,
-  (7) Cross-referencing contacts with WhatsApp, (8) Bulk messaging campaigns.
+  (7) Cross-referencing contacts with WhatsApp, (8) Bulk messaging campaigns,
+  (9) Sending links with rich previews, (10) Sending images with captions.
 
   ALWAYS use this skill instead of the WhatsApp Go MCP tool (which is unreliable).
   ALWAYS use this skill when the user mentions WhatsApp, GOWA, or messaging contacts.
@@ -29,14 +31,6 @@ CORS_PROXY: https://cors.trigox.workers.dev
 DEVICE_ID: sami
 ```
 
-## Required Workflow
-
-1. Use direct `curl` calls through the CORS proxy for all GOWA requests.
-2. For GET requests, include `device_id=sami` in the query string.
-3. For POST requests, send `device_id: "sami"` in the JSON body.
-4. Use `34XXXXXXXXX` format for phone numbers and full JIDs when reading chat history.
-5. Do not use the WhatsApp Go MCP tools.
-
 ## Critical Rules
 
 1. ALWAYS use `cors.trigox.workers.dev` proxy for all calls: `curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/..."`
@@ -47,266 +41,182 @@ DEVICE_ID: sami
 6. JID format for individuals: `34XXXXXXXXX@s.whatsapp.net`
 7. JID format for groups: `120363XXXXXXXXXXXX@g.us`
 
+---
+
 ## Verified Endpoints
 
 ### 1. List Chats (GET)
-
-Returns all conversations (individual + group), sorted by most recent.
 
 ```bash
 curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chats?device_id=sami&limit=100&offset=0"
 ```
 
-Parameters:
-- `device_id` (required): Device identifier
-- `limit` (optional): Max results per page (max 100, default 25)
-- `offset` (optional): Pagination offset (0-based)
-
-Response structure:
-
-```json
-{
-  "results": {
-    "data": [
-      {
-        "jid": "34642609188@s.whatsapp.net",
-        "name": "KITTY ZHU",
-        "last_message_time": "2026-02-27T10:43:00Z"
-      }
-    ],
-    "pagination": {
-      "total": 801,
-      "limit": 100,
-      "offset": 0
-    }
-  }
-}
-```
-
-Pagination example:
-
-```bash
-for offset in 0 100 200 300 400 500 600 700 800; do
-  curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chats?device_id=sami&limit=100&offset=$offset"
-done
-```
+Parameters: `device_id` (required), `limit` (max 100, default 25), `offset` (0-based).
 
 ### 2. Read Messages From Chat (GET)
 
-The JID goes in the URL path before `/messages`.
+**CRITICAL PATH:** `/chat/{JID}/messages` — JID goes in URL path BEFORE `/messages`.
 
 ```bash
-# Individual chat
 curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/34611158350@s.whatsapp.net/messages?device_id=sami&limit=100"
-
-# Group chat
-curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/120363423943239814@g.us/messages?device_id=sami&limit=100"
 ```
 
-Critical path format:
-- Correct: `/chat/{JID}/messages`
-- Wrong: `/chat/messages/{JID}`
-- Wrong: `/chat/messages?jid={JID}`
-- Wrong: `/messages?chat_id={JID}`
+- CORRECT: `/chat/{JID}/messages`
+- WRONG: `/chat/messages/{JID}`, `/chat/messages?jid={JID}`, `/messages?chat_id={JID}`
 
-Parameters:
-- `device_id` (required): Device identifier
-- `limit` (optional): Max messages to return
-- `offset` (optional): Pagination offset
-
-Response structure:
-
-```json
-{
-  "results": {
-    "data": [
-      {
-        "timestamp": "2026-02-27T12:35:00Z",
-        "content": "Message text here",
-        "from": "34679794037@s.whatsapp.net",
-        "is_from_me": true
-      }
-    ],
-    "pagination": {
-      "total": 353
-    }
-  }
-}
-```
-
-### 3. Send Message (POST)
-
-Working endpoint:
+### 3. Send Text Message (POST)
 
 ```bash
 curl -s -X POST "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/message" \
   -H "Content-Type: application/json" \
-  -d '{
-    "device_id": "sami",
-    "phone": "34642609188@s.whatsapp.net",
-    "message": "Hello from GOWA API",
-    "is_forwarded": false
-  }'
+  -d '{"device_id":"sami","phone":"34XXXXXXXXX@s.whatsapp.net","message":"Hello","is_forwarded":false}'
 ```
 
-Alternative endpoint:
+Alternative: `/send/text` with same params.
+
+### 4. Send Link With Rich Preview (POST) — NEW
+
+Sends a URL with auto-generated thumbnail preview and title. **Use this instead of `/send/message` when sharing links.**
 
 ```bash
-curl -s -X POST "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/text" \
+curl -s -X POST "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/link" \
   -H "Content-Type: application/json" \
-  -d '{
-    "device_id": "sami",
-    "phone": "34642609188",
-    "message": "Hello from GOWA API"
-  }'
+  -d '{"device_id":"sami","phone":"34XXXXXXXXX@s.whatsapp.net","link":"https://example.com/article","caption":"Check this out"}'
 ```
 
-Parameters:
+**Parameters (JSON body):**
 - `device_id` (required): `"sami"`
-- `phone` (required): Accepts `34XXXXXXXXX` or `34XXXXXXXXX@s.whatsapp.net`
-- `message` (required): Text body, supports `\n`
-- `is_forwarded` (optional): Boolean
+- `phone` (required): JID or plain number
+- `link` (required): Full URL to share — NOT `url`, must be `link`
+- `caption` (required): Text shown above the preview — NOT `message`, must be `caption`
 
-Response on success:
+**IMPORTANT CAVEATS:**
+- GOWA fetches the URL server-side to generate preview. If the target site blocks the request (403), the call fails.
+- Sites known to BLOCK: La Moncloa (.gob.es), some law firm sites with Cloudflare protection, Parainmigrantes.
+- Sites that WORK: Infobae, Instagram, Wikipedia, España Abogados, Familias Solidarias, La Actualidad.
+- **FALLBACK:** If `/send/link` returns 403 or INTERNAL_SERVER_ERROR, resend using `/send/message` with the URL in the text body. User will get a clickable link but no preview thumbnail.
 
+**Success response:**
 ```json
-{
-  "results": {
-    "message_id": "3EB0010200C5DABF137B09",
-    "status": "sent"
-  }
-}
+{"code":"SUCCESS","message":"Link sent to 34XXXXXXXXX@s.whatsapp.net (server timestamp: ...)"}
 ```
 
-Sending to groups:
+**Error responses:**
+```json
+{"code":"VALIDATION_ERROR","message":"caption: cannot be blank; link: cannot be blank."}
+{"code":"INTERNAL_SERVER_ERROR","message":"HTTP request failed with status: 403 Forbidden"}
+```
+
+### 5. Send Image (POST) — UNRELIABLE
+
+Endpoint exists but most image URLs fail because GOWA fetches server-side.
 
 ```bash
-curl -s -X POST "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/message" \
+curl -s -X POST "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/image" \
   -H "Content-Type: application/json" \
-  -d '{
-    "device_id": "sami",
-    "phone": "120363423943239814@g.us",
-    "message": "Group message here"
-  }'
+  -d '{"device_id":"sami","phone":"34XXXXXXXXX@s.whatsapp.net","image_url":"https://example.com/photo.jpg","caption":"Photo caption"}'
 ```
 
-### 4. Check If Phone Is On WhatsApp (GET)
+Known issues: Most URLs return 403, "unsupported file type" if not direct image MIME.
+
+### 6. Send Video (POST) — UNRELIABLE
+
+Only works with direct video file URLs (.mp4).
+
+```bash
+curl -s -X POST "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/video" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id":"sami","phone":"34XXXXXXXXX@s.whatsapp.net","video_url":"https://example.com/video.mp4","caption":"Video caption"}'
+```
+
+Known issues: Instagram/web page URLs fail with "invalid content type: text/html". For Instagram Reels use `/send/link` instead.
+
+### 7. Check If Phone Is On WhatsApp (GET)
 
 ```bash
 curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/user/check?device_id=sami&phone=34642609188"
 ```
 
-Parameters:
-- `device_id` (required): Device identifier
-- `phone` (required): `34XXXXXXXXX` without suffix
-
-### 5. Group Info (GET)
+### 8. Group Info (GET)
 
 ```bash
 curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/group/info?device_id=sami&group_id=120363423943239814@g.us"
 ```
 
-### 6. Group Participants (GET)
+### 9. Group Participants (GET)
 
 ```bash
 curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/group/participants?device_id=sami&group_id=120363423943239814@g.us"
 ```
 
-Response structure:
+---
 
-```json
-{
-  "results": {
-    "data": [
-      {
-        "jid": "34679794037@s.whatsapp.net",
-        "is_admin": true,
-        "is_super_admin": true
-      }
-    ]
-  }
+## Endpoints That Do NOT Exist
+
+- `/messages?device_id=...&chat_id=...`
+- `/message/list?device_id=...`
+- `/chat/history?device_id=...&jid=...`
+- `/chat/{JID}/history`
+- `/chat/messages/{JID}`
+- `/chat/messages?jid={JID}`
+- `/contacts?device_id=...`
+- `/contact/list?device_id=...`
+- `/user/contacts?device_id=...`
+- `/groups/{JID}?device_id=...`
+- `/group/list?device_id=...`
+
+---
+
+## Bulk Send Pattern (Shell-Compatible)
+
+**CRITICAL:** The Claude container uses `/bin/sh`, NOT bash. Bash arrays `()` cause syntax errors. Use function-based pattern:
+
+```bash
+send() {
+  curl -s -X POST "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/message" \
+    -H "Content-Type: application/json" \
+    -d "{\"device_id\":\"sami\",\"phone\":\"34XXXXXXXXX@s.whatsapp.net\",\"message\":\"$1\"}"
+  echo " --- $2"
+  sleep 1
 }
+
+send "First message" "1/10"
+send "Second message" "2/10"
 ```
 
-## Endpoints That Do Not Exist
-
-Never attempt these:
-
-- `GET /messages?device_id=...&chat_id=...`
-- `GET /message/list?device_id=...`
-- `GET /chat/history?device_id=...&jid=...`
-- `GET /chat/{JID}/history`
-- `GET /chat/messages/{JID}`
-- `GET /chat/messages?jid={JID}`
-- `GET /contacts?device_id=...`
-- `GET /contact/list?device_id=...`
-- `GET /user/contacts?device_id=...`
-- `GET /groups/{JID}?device_id=...`
-- `GET /group/list?device_id=...`
-
-## Common Workflows
-
-### Workflow A: Check And Read Chats
-
+For links with preview:
 ```bash
-curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chats?device_id=sami&limit=20"
-curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/34642609188@s.whatsapp.net/messages?device_id=sami&limit=50"
+sendlink() {
+  curl -s -X POST "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/link" \
+    -H "Content-Type: application/json" \
+    -d "{\"device_id\":\"sami\",\"phone\":\"34XXXXXXXXX@s.whatsapp.net\",\"link\":\"$1\",\"caption\":\"$2\"}"
+  echo " --- $3"
+  sleep 1
+}
+
+sendlink "https://example.com/article" "Check this article" "1/5"
 ```
 
-### Workflow B: Contact Outreach
+**Rate limiting:** `sleep 1` between messages is sufficient. Use `sleep 2` for bulk 20+ msgs.
 
-```bash
-curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/user/check?device_id=sami&phone=34XXXXXXXXX"
-curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/34XXXXXXXXX@s.whatsapp.net/messages?device_id=sami&limit=5"
-curl -s -X POST "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/message" \
-  -H "Content-Type: application/json" \
-  -d '{"device_id":"sami","phone":"34XXXXXXXXX@s.whatsapp.net","message":"Your message here"}'
-```
+---
 
-### Workflow C: Group Analysis
+## Link Sharing Strategy
 
-```bash
-curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chats?device_id=sami&limit=100" | python3 -c "
-import json,sys
-data=json.load(sys.stdin)
-for c in data['results']['data']:
-    if '@g.us' in c['jid']:
-        print(f\"{c['name']:40s} | {c['jid']}\")"
+| Scenario | Endpoint | Result |
+|----------|----------|--------|
+| Share link with preview thumbnail | `/send/link` | Rich card with image + title |
+| Link to site that blocks bots | `/send/message` | Clickable link, no preview |
+| Instagram Reel / video page | `/send/link` | Preview card with play button |
+| Direct .mp4 file | `/send/video` | Inline video player |
+| Direct .jpg/.png | `/send/image` | Inline image |
 
-curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/group/info?device_id=sami&group_id=GROUP_JID"
-curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/group/participants?device_id=sami&group_id=GROUP_JID"
-curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/GROUP_JID/messages?device_id=sami&limit=100"
-```
+**Recommended flow:**
+1. Try `/send/link` first for best UX
+2. If 403/error, fallback to `/send/message` with URL in text
+3. Only use `/send/image` or `/send/video` with known direct-file URLs
 
-### Workflow D: Bulk Send With WhatsApp Check
-
-```bash
-PHONES="34611111111 34622222222 34633333333"
-MESSAGE="Your bulk message here"
-
-for phone in $PHONES; do
-  check=$(curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/user/check?device_id=sami&phone=$phone")
-  if echo "$check" | grep -q "jid"; then
-    curl -s -X POST "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/message" \
-      -H "Content-Type: application/json" \
-      -d "{\"device_id\":\"sami\",\"phone\":\"${phone}@s.whatsapp.net\",\"message\":\"$MESSAGE\"}"
-    echo "Sent to $phone"
-    sleep 2
-  else
-    echo "$phone not on WhatsApp"
-  fi
-done
-```
-
-## Error Handling
-
-| Error | Cause | Fix |
-|-------|-------|-----|
-| `Cannot GET /...` | Endpoint does not exist | Use the verified endpoints above |
-| Empty response | CORS proxy issue | Try the direct URL without the proxy |
-| `device not found` | Wrong device ID | Use `device_id=sami` |
-| Connection refused | GOWA server down | Wait and retry |
-| `not on whatsapp` | Number not registered | Skip or verify the number |
+---
 
 ## Quick Reference
 
@@ -314,12 +224,27 @@ done
 |--------|--------|----------|------------|
 | List chats | GET | `/chats` | `device_id`, `limit`, `offset` |
 | Read messages | GET | `/chat/{JID}/messages` | `device_id`, `limit`, `offset` |
-| Send message | POST | `/send/message` | `device_id`, `phone`, `message` |
-| Send text | POST | `/send/text` | `device_id`, `phone`, `message` |
+| Send text | POST | `/send/message` | `device_id`, `phone`, `message` |
+| Send text (alt) | POST | `/send/text` | `device_id`, `phone`, `message` |
+| **Send link** | POST | `/send/link` | `device_id`, `phone`, `link`, `caption` |
+| Send image | POST | `/send/image` | `device_id`, `phone`, `image_url`, `caption` |
+| Send video | POST | `/send/video` | `device_id`, `phone`, `video_url`, `caption` |
 | Check number | GET | `/user/check` | `device_id`, `phone` |
 | Group info | GET | `/group/info` | `device_id`, `group_id` |
 | Group members | GET | `/group/participants` | `device_id`, `group_id` |
 
-## MCP Alternative
+## Error Handling
 
-The `Whatsapp Go MCP` server exists but is unreliable. Always use direct `curl` calls to `gowa.megawebs.com` instead.
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Cannot GET /...` | Endpoint does not exist | Use verified endpoints above |
+| `VALIDATION_ERROR` | Missing required field | Check param names: `link` not `url`, `caption` not `message` |
+| `403 Forbidden` | Target site blocks GOWA fetch | Fallback to `/send/message` |
+| `invalid content type: text/html` | URL is a web page not media | Use `/send/link` for web pages |
+| `unsupported file type` | URL not valid media | Use direct file URL (.jpg, .mp4) |
+| `device not found` | Wrong device_id | Use `device_id=sami` |
+| `connection reset by peer` | Target server dropped conn | Retry or fallback to `/send/message` |
+
+## MCP Alternative (NOT RECOMMENDED)
+
+The `Whatsapp Go MCP` server at `gowa-mcp.megawebs.com` exists but is unreliable. Always use direct `curl` to `gowa.megawebs.com`.
