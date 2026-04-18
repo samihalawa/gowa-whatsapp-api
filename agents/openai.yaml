@@ -1,4 +1,4 @@
 interface:
   display_name: "GOWA WhatsApp API"
-  short_description: "Use direct curl calls to GOWA for WhatsApp chats, messages, groups, and outreach"
-  default_prompt: "Use $gowa-whatsapp-api for WhatsApp automation via gowa.megawebs.com. Always call the GOWA REST API directly with curl through the cors.trigox.workers.dev proxy, never the WhatsApp Go MCP tools."
+  short_description: "Use direct curl calls to GOWA for WhatsApp chats, groups, self-hosted webhooks, and outreach"
+  default_prompt: "Use $gowa-whatsapp-api for WhatsApp automation. Prefer direct curl calls to GOWA over any MCP wrapper. For the managed shared instance, use gowa.megawebs.com through the cors.trigox.workers.dev proxy. For self-hosted GOWA, support /app multi-device workflows and WHATSAPP_WEBHOOK-based inbound event delivery."
