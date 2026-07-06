@@ -15,6 +15,7 @@ description: |
   ALWAYS use this skill instead of the WhatsApp Go MCP tool.
   ALWAYS prefer direct curl calls to the GOWA REST API over any MCP wrapper.
   For the managed shared instance, default to gowa.megawebs.com through the CORS proxy.
+  For the managed shared instance, treat `device_id=sami` as mandatory, not optional.
 ---
 
 # GOWA WhatsApp API
@@ -33,7 +34,7 @@ The main production path for this environment is the managed shared instance.
 1. Always use direct `curl`.
 2. For the shared managed instance, route requests through `https://cors.trigox.workers.dev`.
 3. Never use the WhatsApp Go MCP tools.
-4. On the managed instance, use `device_id=sami`.
+4. On the managed instance, use `device_id=sami` everywhere.
 5. On managed GET requests, pass `device_id=sami` in the query string.
 6. On managed POST requests, pass `"device_id": "sami"` in the JSON body.
 7. Use `34XXXXXXXXX` for bare phone numbers.
@@ -54,6 +55,12 @@ Managed request template:
 ```bash
 curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/..."
 ```
+
+Non-negotiable managed-instance rule:
+
+- if the request touches the shared managed instance, include `device_id=sami`
+- do not let the model improvise another device ID
+- if an older note or example omits the device ID, fix it before calling
 
 ## Number And JID Formats
 
@@ -679,6 +686,51 @@ curl -s -X POST \
   -H "Content-Type: application/json" \
   -d "{\"device_id\":\"sami\",\"phone\":\"${PHONE}@s.whatsapp.net\",\"message\":\"$MESSAGE\"}"
 ```
+
+### Workflow B2: Save A Contact To iCloud CardDAV After WhatsApp Or TusClases Qualification
+
+Use this when the user wants a lead saved into the Apple/iCloud contacts graph so it becomes available to WhatsApp contact resolution on their devices.
+
+Known account shape for this workflow:
+
+- CardDAV base: `https://contacts.icloud.com/1346608883/carddavhome/card`
+- auth user: `samihalawaster@gmail.com`
+- auth secret: use the current iCloud app-specific password from the user's secret source for this workflow
+- content type: `text/vcard; charset=utf-8`
+- vCard version: `3.0`
+- filename must be `{UUID}.vcf`
+- `UID:` inside the card must match that same UUID
+
+Minimal pattern:
+
+```bash
+UUID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+
+cat > "/tmp/${UUID}.vcf" <<EOF
+BEGIN:VCARD
+VERSION:3.0
+PRODID:-//Codex//Lead Sync//EN
+UID:${UUID}
+FN:Jose Olivares
+N:Olivares;Jose;;;
+NOTE:TusClasesParticulares lead. Replied on 2026-07-06.
+CATEGORIES:TusClasesParticulares,WhatsApp,Lead
+END:VCARD
+EOF
+
+curl -sS -X PUT \
+  -u "samihalawaster@gmail.com:${ICLOUD_APP_PASSWORD}" \
+  -H "Content-Type: text/vcard; charset=utf-8" \
+  --data-binary @"/tmp/${UUID}.vcf" \
+  "https://contacts.icloud.com/1346608883/carddavhome/card/${UUID}.vcf"
+```
+
+Operational notes:
+
+- use this after a lead has been qualified from TusClases, WhatsApp, or another live lead rail
+- if no phone number is visible yet, create the contact anyway with name plus note/source metadata
+- if a phone number is known, add `TEL;TYPE=CELL:` so WhatsApp can resolve it as a phone contact
+- a successful create returns `201 Created`
 
 ### Workflow C: Inspect A Group
 
