@@ -15,7 +15,8 @@ description: |
   ALWAYS use this skill instead of the WhatsApp Go MCP tool.
   ALWAYS prefer direct curl calls to the GOWA REST API over any MCP wrapper.
   For the managed shared instance, default to gowa.megawebs.com through the CORS proxy.
-  For the managed shared instance, treat `device_id=sami` as mandatory, not optional.
+  For the managed shared instance, confirm the intended `device_id` with `GET /devices`
+  before every workflow; device IDs and accounts can change.
 ---
 
 # GOWA WhatsApp API
@@ -34,9 +35,11 @@ The main production path for this environment is the managed shared instance.
 1. Always use direct `curl`.
 2. For the shared managed instance, route requests through `https://cors.trigox.workers.dev`.
 3. Never use the WhatsApp Go MCP tools.
-4. On the managed instance, use `device_id=sami` everywhere.
-5. On managed GET requests, pass `device_id=sami` in the query string.
-6. On managed POST requests, pass `"device_id": "sami"` in the JSON body.
+4. Before a managed workflow, list `/devices`; select the logged-in device that holds the
+   requested account/contact. Do not default to a device by its name.
+5. On managed GET requests, pass the confirmed `device_id` in the query string.
+6. On managed POST requests, pass the confirmed `device_id` using the endpoint's observed
+   parameter shape (query parameter or JSON body); do not assume a body-only value works.
 7. Use `34XXXXXXXXX` for bare phone numbers.
 8. Use `34XXXXXXXXX@s.whatsapp.net` for person JIDs.
 9. Use `120363XXXXXXXXXXXX@g.us` for group JIDs.
@@ -47,7 +50,7 @@ The main production path for this environment is the managed shared instance.
 ```text
 MANAGED_BASE_URL=https://gowa.megawebs.com
 MANAGED_PROXY=https://cors.trigox.workers.dev
-MANAGED_DEVICE_ID=sami
+MANAGED_DEVICE_ID=<confirm-with-GET-/devices>
 ```
 
 Managed request template:
@@ -58,9 +61,28 @@ curl -s "https://cors.trigox.workers.dev/https://gowa.megawebs.com/..."
 
 Non-negotiable managed-instance rule:
 
-- if the request touches the shared managed instance, include `device_id=sami`
-- do not let the model improvise another device ID
+- call `GET /devices` at the beginning of every workflow and include the selected `device_id` on every managed request
+- when more than one device is logged in, do not treat the first result as authoritative: inspect `/chats` (or the named contact's history) on candidate devices and select the account that contains the requested conversation
+- a missing chat on one device is not proof that it does not exist on another logged-in device
+- do not let the model improvise a device ID or trust a stale hard-coded value
 - if an older note or example omits the device ID, fix it before calling
+
+### Managed Device Selection
+
+The shared service can have multiple logged-in devices for different WhatsApp accounts. For example, a device named `autodate` may be connected while the relevant business/recruiter conversation is under a separate `sami` device. This is account selection, not a cosmetic alias.
+
+Read the literal `/devices` response first, then verify the target account:
+
+```bash
+# Obtain auth from the approved secret source; never print it.
+curl -s -u "$GOWA_BASIC_AUTH" "$MANAGED_BASE_URL/devices"
+
+# For each logged-in candidate, read a small chat page before declaring a contact absent.
+curl -s -u "$GOWA_BASIC_AUTH" \
+  "$MANAGED_BASE_URL/chats?device_id=$MANAGED_DEVICE_ID&limit=100&offset=0"
+```
+
+Only after identifying the device that contains the requested chat should a read, send, or group operation proceed. For outgoing activity, retain the selected device ID in the action record.
 
 ## Number And JID Formats
 
@@ -157,7 +179,7 @@ Returns chats, both direct and group, newest first.
 
 ```bash
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chats?device_id=sami&limit=100&offset=0"
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chats?device_id=${MANAGED_DEVICE_ID}&limit=100&offset=0"
 ```
 
 Parameters:
@@ -192,7 +214,7 @@ Pagination loop:
 ```bash
 for offset in 0 100 200 300 400 500 600 700 800; do
   curl -s \
-    "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chats?device_id=sami&limit=100&offset=$offset"
+    "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chats?device_id=${MANAGED_DEVICE_ID}&limit=100&offset=$offset"
 done
 ```
 
@@ -200,7 +222,7 @@ List only groups:
 
 ```bash
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chats?device_id=sami&limit=100&offset=0" \
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chats?device_id=${MANAGED_DEVICE_ID}&limit=100&offset=0" \
   | jq -r '.results.data[] | select(.jid | endswith("@g.us")) | [.name, .jid] | @tsv'
 ```
 
@@ -210,14 +232,14 @@ Correct path:
 
 ```bash
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/34642609188@s.whatsapp.net/messages?device_id=sami&limit=100"
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/34642609188@s.whatsapp.net/messages?device_id=${MANAGED_DEVICE_ID}&limit=100"
 ```
 
 Group example:
 
 ```bash
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/120363411006743584@g.us/messages?device_id=sami&limit=100"
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/120363411006743584@g.us/messages?device_id=${MANAGED_DEVICE_ID}&limit=100"
 ```
 
 Parameters:
@@ -263,7 +285,7 @@ curl -s -X POST \
   "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/message" \
   -H "Content-Type: application/json" \
   -d '{
-    "device_id": "sami",
+    "device_id": "<confirmed-device-id>",
     "phone": "34642609188@s.whatsapp.net",
     "message": "Hello from GOWA API",
     "is_forwarded": false
@@ -277,7 +299,7 @@ curl -s -X POST \
   "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/text" \
   -H "Content-Type: application/json" \
   -d '{
-    "device_id": "sami",
+    "device_id": "<confirmed-device-id>",
     "phone": "34642609188",
     "message": "Hello from GOWA API"
   }'
@@ -308,7 +330,7 @@ curl -s -X POST \
   "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/message" \
   -H "Content-Type: application/json" \
   -d '{
-    "device_id": "sami",
+    "device_id": "<confirmed-device-id>",
     "phone": "120363411006743584@g.us",
     "message": "Group message here"
   }'
@@ -318,7 +340,7 @@ curl -s -X POST \
 
 ```bash
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/user/check?device_id=sami&phone=34642609188"
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/user/check?device_id=${MANAGED_DEVICE_ID}&phone=34642609188"
 ```
 
 Parameters:
@@ -335,14 +357,14 @@ Typical use:
 
 ```bash
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/group/info?device_id=sami&group_id=120363411006743584@g.us"
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/group/info?device_id=${MANAGED_DEVICE_ID}&group_id=120363411006743584@g.us"
 ```
 
 ### 6. Group Participants
 
 ```bash
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/group/participants?device_id=sami&group_id=120363411006743584@g.us"
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/group/participants?device_id=${MANAGED_DEVICE_ID}&group_id=120363411006743584@g.us"
 ```
 
 Response shape:
@@ -367,7 +389,7 @@ These notes matter when the user is working against their own deployed GOWA rath
 
 ### Device Model
 
-Self-hosted app endpoints use a `device` query parameter, not the managed-instance `device_id=sami` convention.
+Self-hosted app endpoints use a `device` query parameter, not the managed-instance confirmed-`device_id` convention.
 
 Examples:
 
@@ -662,11 +684,11 @@ Do not waste time on these variants:
 
 ```bash
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chats?device_id=sami&limit=100&offset=0" \
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chats?device_id=${MANAGED_DEVICE_ID}&limit=100&offset=0" \
   | jq -r '.results.data[] | [.name, .jid] | @tsv'
 
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/34642609188@s.whatsapp.net/messages?device_id=sami&limit=50"
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/34642609188@s.whatsapp.net/messages?device_id=${MANAGED_DEVICE_ID}&limit=50"
 ```
 
 ### Workflow B: Outreach With Verification First
@@ -676,15 +698,15 @@ PHONE=34642609188
 MESSAGE="Hello from GOWA"
 
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/user/check?device_id=sami&phone=$PHONE"
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/user/check?device_id=${MANAGED_DEVICE_ID}&phone=$PHONE"
 
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/${PHONE}@s.whatsapp.net/messages?device_id=sami&limit=5"
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/${PHONE}@s.whatsapp.net/messages?device_id=${MANAGED_DEVICE_ID}&limit=5"
 
 curl -s -X POST \
   "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/message" \
   -H "Content-Type: application/json" \
-  -d "{\"device_id\":\"sami\",\"phone\":\"${PHONE}@s.whatsapp.net\",\"message\":\"$MESSAGE\"}"
+  -d "{\"device_id\":\"${MANAGED_DEVICE_ID}\",\"phone\":\"${PHONE}@s.whatsapp.net\",\"message\":\"$MESSAGE\"}"
 ```
 
 ### Workflow B2: Save A Contact To iCloud CardDAV After WhatsApp Or TusClases Qualification
@@ -738,13 +760,13 @@ Operational notes:
 GROUP_JID="120363411006743584@g.us"
 
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/group/info?device_id=sami&group_id=$GROUP_JID"
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/group/info?device_id=${MANAGED_DEVICE_ID}&group_id=$GROUP_JID"
 
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/group/participants?device_id=sami&group_id=$GROUP_JID"
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/group/participants?device_id=${MANAGED_DEVICE_ID}&group_id=$GROUP_JID"
 
 curl -s \
-  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/$GROUP_JID/messages?device_id=sami&limit=100"
+  "https://cors.trigox.workers.dev/https://gowa.megawebs.com/chat/$GROUP_JID/messages?device_id=${MANAGED_DEVICE_ID}&limit=100"
 ```
 
 ### Workflow D: Bulk Send Safely
@@ -755,13 +777,13 @@ MESSAGE="Your bulk message here"
 
 for phone in $PHONES; do
   check=$(curl -s \
-    "https://cors.trigox.workers.dev/https://gowa.megawebs.com/user/check?device_id=sami&phone=$phone")
+    "https://cors.trigox.workers.dev/https://gowa.megawebs.com/user/check?device_id=${MANAGED_DEVICE_ID}&phone=$phone")
 
   if echo "$check" | jq -e '.results.jid? // .results.data?.jid? // .results.data?[0]?.jid?' >/dev/null 2>&1; then
     curl -s -X POST \
       "https://cors.trigox.workers.dev/https://gowa.megawebs.com/send/message" \
       -H "Content-Type: application/json" \
-      -d "{\"device_id\":\"sami\",\"phone\":\"${phone}@s.whatsapp.net\",\"message\":\"$MESSAGE\"}"
+      -d "{\"device_id\":\"${MANAGED_DEVICE_ID}\",\"phone\":\"${phone}@s.whatsapp.net\",\"message\":\"$MESSAGE\"}"
     echo "Sent to $phone"
     sleep 2
   else
@@ -786,7 +808,7 @@ curl -s "$HOST/app/devices"
 |---|---|---|
 | `Cannot GET /...` | Wrong endpoint | Use the verified route map |
 | empty response through proxy | Proxy issue or upstream issue | retry direct host if allowed |
-| `device not found` | wrong device ID | use `device_id=sami` on managed instance |
+| `device not found` | wrong device ID | rerun `/devices`, then use the selected device ID |
 | `ALREADY_LOGGED_IN` | default self-hosted device already connected | use a fresh `device=...` value |
 | `not on whatsapp` | target number not registered | skip or verify number |
 | `403` while sending image | media host blocks server-side fetcher | rehost image on simpler public URL |
@@ -796,7 +818,7 @@ curl -s "$HOST/app/devices"
 
 | Action | Method | Endpoint | Notes |
 |---|---|---|---|
-| List chats | GET | `/chats` | managed: `device_id=sami` |
+| List chats | GET | `/chats` | managed: confirmed `device_id` |
 | Read chat history | GET | `/chat/{JID}/messages` | full JID required |
 | Send text | POST | `/send/message` | managed working path |
 | Send text alt | POST | `/send/text` | simpler variant |
