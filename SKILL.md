@@ -1,22 +1,6 @@
 ---
 name: gowa-whatsapp-api
-description: |
-  GOWA (Go WhatsApp) REST API for WhatsApp automation via gowa.megawebs.com.
-  Triggers: "whatsapp", "gowa", "send whatsapp", "whatsapp message", "whatsapp chats",
-  "check whatsapp", "whatsapp group", "group participants", "send message whatsapp",
-  "list chats", "read messages", "whatsapp contacts", "whatsapp outreach", "bulk whatsapp",
-  "whatsapp check number", "is on whatsapp", "gowa api", "gowa curl".
-
-  Use when: (1) Listing WhatsApp chats and groups, (2) Reading chat history,
-  (3) Sending text or media to people or groups, (4) Inspecting group state,
-  (5) Checking whether a phone exists on WhatsApp, (6) Running GOWA REST API calls
-  directly, (7) Handling self-hosted GOWA multi-device workflows, (8) Bulk outreach.
-
-  ALWAYS use this skill instead of the WhatsApp Go MCP tool.
-  ALWAYS prefer direct curl calls to the GOWA REST API over any MCP wrapper.
-  For the managed shared instance, default to gowa.megawebs.com through the CORS proxy.
-  For the managed shared instance, confirm the intended `device_id` with `GET /devices`
-  before every workflow; device IDs and accounts can change.
+description: Use the GOWA REST API for WhatsApp chats, messages, groups, sends, number checks, multi-device sessions, webhooks, exhaustive history recovery, and idempotent Twenty CRM archival sync. Prefer direct curl over the WhatsApp Go MCP wrapper. On the managed instance, call GET /devices first and select the account that actually contains the target chat; device IDs can change. For Twenty, preserve every native message ID in one generic External Activity per nonempty chat instead of creating provider-specific fields or one CRM record per message.
 ---
 
 # GOWA WhatsApp API
@@ -521,6 +505,29 @@ Use both:
 
 Do not build a system that relies only on polling if you control the GOWA deployment.
 
+## Twenty CRM archival sync
+
+When WhatsApp history must be retained in the live Twenty workspace, reuse the existing generic `External Activity` object. Do not create a WhatsApp-specific object, one CRM record per message, transcript fields, direction fields, raw-metadata fields, or duplicate Notes.
+
+The live External Activity contract is deliberately small:
+
+`sourceId (unique) | name | occurredAt | activityType | sourceLink | Content | Person? | Company? | Opportunity?`
+
+The visible `Content` field is currently exposed as `summary` by the API. Inspect live metadata before relying on that API name.
+
+### Backfill and upsert rules
+
+1. List every chat page for the confirmed device until the provider pagination total is exhausted.
+2. Read every message page for each chat and deduplicate by native message ID. Skip truly empty chat shells; keep direct, group, and other nonempty chats.
+3. Create or update exactly one External Activity per nonempty chat with `activityType = WHATSAPP` and `sourceId = gowa:<device-slug>:<jid>`.
+4. Store the full chronological history in `Content`. Include timestamp, direction, native message ID, text, and bounded media metadata for each message. Preserve media type, filename, and provider URL when present; do not copy binaries into CRM merely for parity.
+5. Resolve relations only by exact normalized phone/JID or an already-proven source mapping. Link to one Person and, when evidenced, the related Company and Opportunity. Quarantine ambiguous matches instead of choosing by name.
+6. Replay the same chat and prove the External Activity keeps the same Twenty ID, source ID remains unique, content updates in place, and every retrievable provider-message ID appears exactly once.
+
+If the API's declared message total exceeds the unique rows it returns, inspect the provider's own persistent store when authorized. Import recoverable missing native IDs, report any remaining exact deficit, and do not fabricate placeholder messages. A successful HTTP response or imported chat count is not reconciliation proof.
+
+Use native Twenty Messages for email and native CalendarEvents for meetings. External Activity is only the neutral provider-history layer where Twenty has no suitable native object.
+
 ## Media Sending Notes
 
 ### Image Sending Reality
@@ -841,6 +848,7 @@ When asked to do anything with GOWA:
 3. If the task is self-hosted login, multi-device, QR, or app status, switch to the `/app/*` model with `device=...`.
 4. If the task is media sending, do not trust the remote image host blindly.
 5. If a route fails, do not invent a new variant. Compare against the verified map first.
+6. When synchronizing to Twenty, upsert one External Activity per nonempty chat by the canonical GOWA source ID and reconcile every native message ID before claiming completion.
 
 ## Hard Rule
 
