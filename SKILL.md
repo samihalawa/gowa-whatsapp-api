@@ -494,7 +494,7 @@ Only use that for development, tunnels, or controlled internal networks.
 
 ### Recommended Architecture
 
-Use both:
+Use both when immediate product handling is required:
 
 1. Webhook receiver for immediate inbound events.
 2. REST API for:
@@ -503,7 +503,10 @@ Use both:
    - manual group inspection
    - sending outbound messages
 
-Do not build a system that relies only on polling if you control the GOWA deployment.
+For low-urgency CRM history, a single daily poll is the leaner route when the
+alternative would invoke AI for every WhatsApp message. Keep the support webhook
+separate, filter provider delivery to `WHATSAPP_WEBHOOK_EVENTS=message`, and do
+not create a second relay merely for CRM archival.
 
 ## Twenty CRM archival sync
 
@@ -514,6 +517,19 @@ The live External Activity contract is deliberately small:
 `sourceId (unique) | name | occurredAt | activityType | sourceLink | Content | Person? | Company? | Opportunity?`
 
 The visible `Content` field is currently exposed as `summary` by the API. Inspect live metadata before relying on that API name.
+
+### Lean daily operational sync
+
+Use the existing Oulang daily job for routine CRM updates rather than importing every chat or reacting to every message:
+
+1. Page Twenty People once and cache an index of every normalized native phone.
+2. Page GOWA direct chats only (`@s.whatsapp.net`) and discard every chat whose phone is not in that index before any AI call.
+3. For a matched chat with a provider timestamp newer than its checkpoint, read the full conversation and classify the changed batch once. Relevant means a concrete career, commercial, tutoring, investor, rental, partnership, provider, or other professional relationship/action; personal, OTP, promotional, system, group, and spam traffic stays out.
+4. When relevant, upsert exactly one `WHATSAPP` External Activity by `sourceId = gowa:<device>:<jid>`, link the exact Person, store the full chronological rich text, and read back the unique source ID, Person relation, type, URL, and Content.
+5. Advance the checkpoint only after an irrelevant decision or a successful verified upsert. A provider/read/AI/CRM failure must remain retryable.
+6. Replay immediately and require zero changed chats, zero AI classifications, zero writes, and zero failures.
+
+The scheduled and manual path must call the same job. A forced/manual run may ignore checkpoints for diagnosis, but must retain source-ID idempotency. This routine lane intentionally excludes unmatched contacts and groups; use the exhaustive backfill below only when the user explicitly requests archival recovery.
 
 ### Backfill and upsert rules
 
